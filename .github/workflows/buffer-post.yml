@@ -1,0 +1,87 @@
+name: Post ad to Buffer
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        type: choice
+        options:
+          - list-channels
+          - post
+          - post-folder
+        default: list-channels
+      text:
+        description: "Post text (action = post)"
+        type: string
+        required: false
+      image_url:
+        description: "Public image URL(s), comma-separated (action = post, optional)"
+        type: string
+        required: false
+      channels:
+        description: "Channels: all, or comma list of services/names/IDs (e.g. instagram,facebook)"
+        type: string
+        default: all
+      mode:
+        description: "queue = next Buffer slot, now = publish immediately, schedule = at due_at"
+        type: choice
+        options:
+          - queue
+          - now
+          - schedule
+        default: queue
+      due_at:
+        description: "When mode = schedule: UTC time like 2026-11-20T15:00:00Z"
+        type: string
+        required: false
+      dry_run:
+        description: "Dry run (show what would be posted, post nothing)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: buffer-post
+  cancel-in-progress: false
+
+jobs:
+  buffer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Buffer poster
+        env:
+          BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
+          IN_ACTION: ${{ inputs.action }}
+          IN_TEXT: ${{ inputs.text }}
+          IN_IMAGE_URL: ${{ inputs.image_url }}
+          IN_CHANNELS: ${{ inputs.channels }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_DUE_AT: ${{ inputs.due_at }}
+          IN_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 scripts/buffer_post.py \
+            --action "$IN_ACTION" \
+            --text "$IN_TEXT" \
+            --image-url "$IN_IMAGE_URL" \
+            --channels "$IN_CHANNELS" \
+            --mode "$IN_MODE" \
+            --due-at "$IN_DUE_AT" \
+            --dry-run "$IN_DRY_RUN"
+
+      - name: Move posted ad folders to ads/posted
+        if: always() && inputs.action == 'post-folder' && inputs.dry_run == false
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add -A ads
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "Move posted ads to ads/posted"
+            git push
+          fi
